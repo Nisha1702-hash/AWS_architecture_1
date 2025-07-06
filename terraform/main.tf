@@ -14,6 +14,63 @@ resource "aws_sqs_queue_redrive_policy" "redrive_policy_nisha" {
   })
 }
 
+// ...existing code...
+
+# Additional SQS queues for fan-out
+resource "aws_sqs_queue" "fanout_queue_1" {
+  name = "fanout-queue-1-nisha"
+}
+
+resource "aws_sqs_queue" "fanout_queue_2" {
+  name = "fanout-queue-2-nisha"
+}
+
+# Subscribe both new queues to the SNS topic
+resource "aws_sns_topic_subscription" "sns_to_fanout_queue_1" {
+  topic_arn = aws_sns_topic.notifications_nisha.arn
+  protocol  = "sqs"
+  endpoint  = aws_sqs_queue.fanout_queue_1.arn
+}
+
+resource "aws_sns_topic_subscription" "sns_to_fanout_queue_2" {
+  topic_arn = aws_sns_topic.notifications_nisha.arn
+  protocol  = "sqs"
+  endpoint  = aws_sqs_queue.fanout_queue_2.arn
+}
+
+# (Optional) Lambda functions for each fan-out queue
+resource "aws_lambda_function" "process_fanout_queue_1" {
+  filename         = "../lambda.zip"
+  function_name    = "process-fanout-queue-1-nisha"
+  role             = aws_iam_role.lambda_role_nisha.arn
+  handler          = "index.handler"
+  runtime          = "nodejs18.x"
+  source_code_hash = filebase64sha256("../lambda.zip")
+}
+
+resource "aws_lambda_event_source_mapping" "lambda_fanout_queue_1" {
+  event_source_arn = aws_sqs_queue.fanout_queue_1.arn
+  function_name    = aws_lambda_function.process_fanout_queue_1.arn
+  batch_size       = 5
+}
+
+resource "aws_lambda_function" "process_fanout_queue_2" {
+  filename         = "../lambda.zip"
+  function_name    = "process-fanout-queue-2-nisha"
+  role             = aws_iam_role.lambda_role_nisha.arn
+  handler          = "index.handler"
+  runtime          = "nodejs18.x"
+  source_code_hash = filebase64sha256("../lambda.zip")
+}
+
+resource "aws_lambda_event_source_mapping" "lambda_fanout_queue_2" {
+  event_source_arn = aws_sqs_queue.fanout_queue_2.arn
+  function_name    = aws_lambda_function.process_fanout_queue_2.arn
+  batch_size       = 5
+}
+
+// ...existing code...
+
 resource "aws_sns_topic" "notifications_nisha" {
   name = "notifications-topic-nisha"
 }
@@ -58,7 +115,11 @@ resource "aws_iam_role_policy" "lambda_sqs_access_nisha" {
           "sqs:GetQueueAttributes",
           "sqs:GetQueueUrl"
         ]
-        Resource = aws_sqs_queue.main_queue_nisha.arn
+        Resource = [
+          aws_sqs_queue.main_queue_nisha.arn,
+          aws_sqs_queue.fanout_queue_1.arn,
+          aws_sqs_queue.fanout_queue_2.arn
+        ]
       }
     ]
   })
